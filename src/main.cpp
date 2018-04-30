@@ -242,27 +242,69 @@ int main() {
           	double end_path_d = j[1]["end_path_d"];
 
 		bool too_close = false;
+		bool left_lane_clear = true;
+		bool right_lane_clear = true;
 
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 		for(int i=0;i<sensor_fusion.size();i++){
 		  float d = sensor_fusion[i][6];
-		  //Car is in my lane
+		  double vx = sensor_fusion[i][3];
+		  double vy = sensor_fusion[i][4];
+		  double check_speed = sqrt(vx*vx+vy*vy);
+		  double check_car_s = sensor_fusion[i][5];
+		  //check_car_s += ((double)prev_size*0.02*check_speed); // if using previous points can project s value out
+		  
+		  //Car is in my lane, chek if it is too close
 		  if(d < (2+lane*4 + 2) && d> (2+lane*4-2)){
-		    double vx = sensor_fusion[i][3];
-		    double vy = sensor_fusion[i][4];
-		    double check_speed = sqrt(vx*vx+vy*vy);
-		    double check_car_s = sensor_fusion[i][5];
-		    //check_car_s += ((double)prev_size*0.02*check_speed); // if using previous points can project s value out
 		    //check s value greater than mine and s gap
 		    if((check_car_s > car_s) && ((check_car_s-car_s) < 30)){
 		      //Right now, we only reduce speed
 		      too_close = true;
 		    }
 		  }
+		  else{
+		    // Set up front and rear clearances based on speed
+		    double rear_clearance = 10;
+		    if (check_speed > car_speed){
+		      rear_clearance += (check_speed - car_speed)*0.1*(1.6*5.0/18);
+		    }
+		    double front_clearance = 30;
+		    if (check_speed < car_speed){
+		      rear_clearance += (car_speed - check_speed)*0.1*(1.6*5.0/18);
+		    }
+		    double diff_s  = car_s-check_car_s;
+		    //Check if car is in the left lane and it is clear
+		    if(lane > 0 && d < (2+(lane-1)*4 + 2) && d> (2+(lane-1)*4-2)){
+		      if((diff_s>=0 && diff_s<rear_clearance) || (diff_s<0 && (-diff_s)<front_clearance)){
+			left_lane_clear = false;
+			/*if(too_close){
+			  cout << "left "<< diff_s << " "<<rear_clearance << " "<<front_clearance << endl;
+			  }*/
+		      }
+		    }
+		    //Check if car is in the right lane and it is clear
+		    if(lane < 2 && d < (2+(lane+1)*4 + 2) && d> (2+(lane+1)*4-2)){
+		      if((diff_s>=0 && diff_s<rear_clearance) || (diff_s<0 && (-diff_s)<front_clearance)){
+			right_lane_clear = false;
+			/*if(too_close){
+			  cout << "right "<< diff_s << " "<<rear_clearance << " "<<front_clearance << endl;
+			  }*/
+		      }
+		    }
+		  }
 		}
 		if(too_close){
 		  ref_vel -= .224; // Ends up being 5m/s2 in terms of acceleration
+		  if(left_lane_clear && lane > 0){
+		    lane = lane-1;
+		  }
+		  else if(right_lane_clear && lane < 2){
+		    lane = lane + 1;
+		  }
+		  else{
+		    //cout << "Unable to change lane"<<endl;
+		  }
 		}
 		else if(ref_vel < 49.5){
 		  ref_vel += .224;
@@ -293,10 +335,17 @@ int main() {
 		  ptsy.push_back(ref_y_prev);
 		  ptsy.push_back(ref_y);
 		}
-		//In Frenet, add evenly 30m spaced points ahead of the starting reference
-		vector<double> next_wp0 = getXY(car_s+30,(2+4*lane),map_waypoints_s,map_waypoints_x,map_waypoints_y);
-		vector<double> next_wp1 = getXY(car_s+60,(2+4*lane),map_waypoints_s,map_waypoints_x,map_waypoints_y);
-		vector<double> next_wp2 = getXY(car_s+90,(2+4*lane),map_waypoints_s,map_waypoints_x,map_waypoints_y);
+		//In Frenet, add evenly  spaced points ahead of the starting reference
+		double target1 = 30;
+		double target2 = 60;
+		double target3 = 90;
+		// At faster speeds, aim for points further down the road for a smoother transmition
+		if (car_speed > 30){
+		  target1 = 60;target2 = 75;target3=90;
+		}
+		vector<double> next_wp0 = getXY(car_s+target1,(2+4*lane),map_waypoints_s,map_waypoints_x,map_waypoints_y);
+		vector<double> next_wp1 = getXY(car_s+target2,(2+4*lane),map_waypoints_s,map_waypoints_x,map_waypoints_y);
+		vector<double> next_wp2 = getXY(car_s+target3,(2+4*lane),map_waypoints_s,map_waypoints_x,map_waypoints_y);
 		ptsx.push_back(next_wp0[0]);
 		ptsx.push_back(next_wp1[0]);
 		ptsx.push_back(next_wp2[0]);
